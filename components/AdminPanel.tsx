@@ -49,12 +49,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose, onUploadSuccess
       video.preload = 'metadata';
       video.src = URL.createObjectURL(file);
       video.muted = true;
-      video.currentTime = 1; // Seek to 1s to capture a frame
+      video.playsInline = true;
 
-      video.onloadeddata = () => {
-        if (video.duration < 1) {
-             video.currentTime = 0;
-        }
+      const cleanup = () => {
+        URL.revokeObjectURL(video.src);
+        video.remove();
+      };
+
+      const timeout = setTimeout(() => {
+        cleanup();
+        reject(new Error("Thumbnail generation timed out"));
+      }, 10000);
+
+      video.onloadedmetadata = () => {
+        video.currentTime = Math.min(1, video.duration / 2); // Seek to 1s or middle if shorter
       };
 
       video.onseeked = () => {
@@ -63,16 +71,27 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose, onUploadSuccess
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
             const ctx = canvas.getContext('2d');
-            ctx?.drawImage(video, 0, 0, canvas.width, canvas.height);
-            const url = canvas.toDataURL('image/jpeg', 0.7);
-            URL.revokeObjectURL(video.src);
-            resolve({ url, duration: video.duration });
+            if (ctx) {
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                const url = canvas.toDataURL('image/jpeg', 0.7);
+                clearTimeout(timeout);
+                cleanup();
+                resolve({ url, duration: video.duration });
+            } else {
+                throw new Error("Canvas context failed");
+            }
         } catch (e) {
+            clearTimeout(timeout);
+            cleanup();
             reject(e);
         }
       };
       
-      video.onerror = (e) => reject(e);
+      video.onerror = (e) => {
+        clearTimeout(timeout);
+        cleanup();
+        reject(new Error("Video load error"));
+      };
     });
   };
 
@@ -83,23 +102,36 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose, onUploadSuccess
     setError(null);
 
     try {
-      const { url, duration } = await generateThumbnail(file);
+      let thumbnailUrl = '';
+      let duration = 0;
+
+      try {
+        const result = await generateThumbnail(file);
+        thumbnailUrl = result.url;
+        duration = result.duration;
+      } catch (thumbErr) {
+        console.warn("Thumbnail generation failed, proceeding with default placeholder.", thumbErr);
+        // If thumbnail fails, we try to create a video element just to get duration if possible, 
+        // otherwise default to 0.
+      }
       
       const videoData = {
         id: uuidv4(),
         title: title.trim(),
         category,
         blob: file,
-        thumbnailUrl: url,
+        thumbnailUrl,
         createdAt: Date.now(),
         duration
       };
 
       await saveVideo(videoData);
+      
+      // Reset form but keep category for easier bulk upload
       setFile(null);
       setTitle('');
-      setCategory('Botany');
       if (fileInputRef.current) fileInputRef.current.value = '';
+      
       onUploadSuccess();
     } catch (err: any) {
       console.error(err);
@@ -137,7 +169,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose, onUploadSuccess
               >
                 <UploadIcon className="mx-auto h-10 w-10 text-gray-400 mb-4" />
                 <p className="text-sm text-gray-600 font-medium">Click to select video</p>
-                <p className="text-xs text-gray-400 mt-2">MP4, MOV, AVI supported</p>
+                <p className="text-xs text-gray-400 mt-2">MP4, MOV, AVI, MKV supported</p>
               </div>
             ) : (
               <div className="text-left w-full max-w-md mx-auto">
@@ -183,7 +215,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose, onUploadSuccess
             <input 
               ref={fileInputRef}
               type="file" 
-              accept="video/mp4,video/quicktime,video/x-msvideo" 
+              accept="video/*" 
               className="hidden" 
               onChange={handleFileChange}
             />
@@ -199,13 +231,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose, onUploadSuccess
                     <div key={v.id} className="py-4 flex items-center justify-between group">
                         <div className="flex items-center gap-4">
                             <div className="w-16 h-9 bg-gray-100 rounded overflow-hidden relative">
-                                <img src={v.thumbnailUrl} className="w-full h-full object-cover" alt="" />
+                                {v.thumbnailUrl ? (
+                                    <img src={v.thumbnailUrl} className="w-full h-full object-cover" alt="" />
+                                ) : (
+                                    <div className="w-full h-full flex items-center justify-center bg-gray-200">
+                                        <span className="text-[8px] text-gray-500">No Img</span>
+                                    </div>
+                                )}
                             </div>
                             <div>
-                                <h4 className="text-sm font-medium text-gray-900">{v.title}</h4>
+                                <h4 className="text-sm font-medium text-gray-900 line-clamp-1 max-w-[200px]">{v.title}</h4>
                                 <div className="flex items-center gap-2">
-                                    <span className="text-[10px] uppercase tracking-wider font-semibold text-gray-400 border border-gray-200 px-1 rounded">{v.category || 'Other'}</span>
-                                    <p className="text-xs text-gray-500">{new Date(v.createdAt).toLocaleDateString()}</p>
+                                    <span className="text-[10px] uppercase tracking-wider font-semibold text-gray-500 border border-gray-200 px-1 rounded bg-gray-50">{v.category || 'Other'}</span>
+                                    <p className="text-xs text-gray-400">{new Date(v.createdAt).toLocaleDateString()}</p>
                                 </div>
                             </div>
                         </div>

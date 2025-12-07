@@ -127,7 +127,7 @@ function App() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2 cursor-pointer" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
             <div className="w-3 h-3 bg-black rounded-full"></div>
-            <h1 className="text-lg font-semibold tracking-tight text-gray-900">Lumina</h1>
+            <h1 className="text-lg font-semibold tracking-tight text-gray-900">Holass</h1>
           </div>
 
           <div className="flex-1 max-w-md mx-8 hidden sm:block">

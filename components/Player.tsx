@@ -20,6 +20,7 @@ export const Player: React.FC<PlayerProps> = ({ video, onBack }) => {
   const [playbackRate, setPlaybackRate] = useState(1);
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
   const controlsTimeoutRef = useRef<number | null>(null);
+  const prevVolumeRef = useRef(1);
 
   const videoUrl = React.useMemo(() => {
     return URL.createObjectURL(video.blob);
@@ -54,6 +55,7 @@ export const Player: React.FC<PlayerProps> = ({ video, onBack }) => {
 
     // Apply initial playback rate
     v.playbackRate = playbackRate;
+    v.volume = volume;
 
     v.addEventListener('timeupdate', updateTime);
     v.addEventListener('loadedmetadata', updateDuration);
@@ -77,8 +79,21 @@ export const Player: React.FC<PlayerProps> = ({ video, onBack }) => {
 
   const toggleMute = () => {
     if (videoRef.current) {
-      videoRef.current.muted = !isMuted;
-      setIsMuted(!isMuted);
+      if (isMuted) {
+        // Unmute: restore previous volume
+        const restoredVolume = prevVolumeRef.current || 1;
+        videoRef.current.volume = restoredVolume;
+        videoRef.current.muted = false;
+        setVolume(restoredVolume);
+        setIsMuted(false);
+      } else {
+        // Mute: save current volume
+        prevVolumeRef.current = volume;
+        videoRef.current.volume = 0;
+        videoRef.current.muted = true;
+        setVolume(0);
+        setIsMuted(true);
+      }
     }
   };
 
@@ -175,19 +190,27 @@ export const Player: React.FC<PlayerProps> = ({ video, onBack }) => {
               
               <div className="flex items-center gap-2 group">
                 <button onClick={toggleMute} className="text-white hover:text-gray-300 transition-colors">
-                  {isMuted || volume === 0 ? <MuteIcon size={20} /> : <VolumeIcon size={20} />}
+                  {isMuted ? <MuteIcon size={20} /> : <VolumeIcon size={20} />}
                 </button>
                 <input
                   type="range"
                   min="0"
                   max="1"
-                  step="0.1"
+                  step="0.05"
                   value={isMuted ? 0 : volume}
                   onChange={(e) => {
                     const v = parseFloat(e.target.value);
                     setVolume(v);
                     if (videoRef.current) videoRef.current.volume = v;
-                    setIsMuted(v === 0);
+                    
+                    if (v === 0) {
+                        setIsMuted(true);
+                        if (videoRef.current) videoRef.current.muted = true;
+                    } else {
+                        setIsMuted(false);
+                        if (videoRef.current) videoRef.current.muted = false;
+                        prevVolumeRef.current = v; // Update prev volume while dragging
+                    }
                   }}
                   className="w-0 overflow-hidden group-hover:w-20 transition-all duration-300 h-1 accent-white bg-white/20 rounded-lg"
                 />
